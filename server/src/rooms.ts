@@ -8,7 +8,6 @@ import {
   SHARE_MAX_CREDITS,
   SHARE_TIME_PENALTY_SECONDS,
   SHARE_UI_MAX_CHARS,
-  SHARE_VOTES_NEEDED,
   SHARE_VOTE_SECONDS,
   ROLES,
   ROOM_CODE_ALPHABET,
@@ -47,10 +46,20 @@ import {
   startClock,
   tallyVote,
   thawShare,
+  votesNeeded,
 } from './share.js';
 import type { ShareState } from './share.js';
 
 export { GameError } from './errors.js';
+
+function shuffled<T>(items: readonly T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j] as T, copy[i] as T];
+  }
+  return copy;
+}
 
 interface Player extends PublicPlayer {}
 
@@ -186,12 +195,17 @@ export class RoomManager {
     }
     if (role !== null) {
       if (!isRole(role)) throw new GameError('invalid_role', 'Invalid role.');
-      if (player.usedRoles.includes(role)) {
-        throw new GameError('role_used', 'You’ve already played that role. Try a new one.');
-      }
-      const owner = [...room.players.values()].find((p) => p.role === role);
+      const owner = [...room.players.values()].find((p) => p.roles.includes(role));
       if (owner && owner.playerId !== playerId) {
         throw new GameError('role_taken', 'Someone else already took that role.');
+      }
+      if (!this.fullSquad(room)) {
+        // Menos de 6 jugadores: se pueden tener varios roles y no hay regla de no repetir.
+        this.toggleRole(player, role);
+        return;
+      }
+      if (player.usedRoles.includes(role)) {
+        throw new GameError('role_used', 'You’ve already played that role. Try a new one.');
       }
       // Si con esta elección a alguien le quedaría un rol imposible, no se permite.
       const seats = [...room.players.values()].map((p) => this.seatOf(p, p.playerId === playerId ? role : p.role));
@@ -201,6 +215,18 @@ export class RoomManager {
           'If you take that role, someone else would have no new role left to play. Pick another one.',
         );
       }
+    }
+    this.setRoles(player, role === null ? [] : [role]);
+  }
+
+  /** Con varios roles, elige con cuál jugar ahora. Se puede cambiar en cualquier momento del desafío. */
+  switchRole(roomId: string, playerId: string, role: unknown): void {
+    const { room, player } = this.requirePlayer(roomId, playerId);
+    if (!['practice', 'playing', 'paused', 'final'].includes(room.status)) {
+      throw new GameError('wrong_phase', 'You can only switch roles during a challenge.');
+    }
+    if (!isRole(role) || !player.roles.includes(role)) {
+      throw new GameError('invalid_role', 'You don’t have that role.');
     }
     player.role = role;
   }
@@ -224,14 +250,7 @@ export class RoomManager {
     if (room.status !== 'lobby' && room.status !== 'intro' && room.status !== 'practice_done') {
       throw new GameError('game_started', 'The game has already started.');
     }
-    if (room.players.size !== MAX_PLAYERS) {
-      throw new GameError('not_ready', 'You need 6 players to start.');
-    }
-    room.timer = { remainingMs: TOTAL_SECONDS * 1000, runningSince: null };
-    room.missionMs = 0;
-    room.completed = [];
-    room.hint = null;
-    room.share = newShareState();
+    this.resetMission(room);
     this.beginBriefing(room, 1);
   }
 
@@ -301,7 +320,7 @@ export class RoomManager {
         room.share = newShareState();
         room.status = 'lobby';
         for (const p of room.players.values()) {
-          p.role = null;
+          this.setRoles(p, []);
           p.ready = false;
           p.usedRoles = [];
         }
@@ -309,30 +328,34 @@ export class RoomManager {
 
       case 'intro':
         this.requireStatus(room, ['lobby']);
-        if (room.players.size !== MAX_PLAYERS) {
-          throw new GameError('not_ready', 'You need 6 players to start.');
-        }
         room.status = 'intro';
         return;
 
       case 'practice': {
         this.requireStatus(room, ['lobby', 'intro', 'practice_done']);
-        if (room.players.size !== MAX_PLAYERS) {
-          throw new GameError('not_ready', 'You need 6 players to start.');
-        }
-        const roles = [...ROLES];
-        for (let i = roles.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [roles[i], roles[j]] = [roles[j] as Role, roles[i] as Role];
-        }
-        [...room.players.values()].forEach((p, i) => {
-          p.role = roles[i] as Role;
-          p.ready = false;
-        });
+        this.dealRoles(room);
+        for (const p of room.players.values()) p.ready = false;
         room.currentChallenge = 0;
         room.challengeState = sandboxChallenge.init(randomSeed());
         room.hint = null;
         room.status = 'practice';
+        return;
+      }
+
+      case 'jump': {
+        this.requireStatus(room, ['lobby', 'intro', 'practice_done']);
+        const { challenge, seconds } = command;
+        if (!Number.isInteger(challenge) || challenge < 1 || challenge > this.challenges.length) {
+          throw new GameError('invalid_command', `The challenge must be between 1 and ${this.challenges.length}.`);
+        }
+        if (seconds !== undefined && (!Number.isInteger(seconds) || seconds < 1 || seconds > TOTAL_SECONDS)) {
+          throw new GameError('invalid_command', `The time left must be between 1 and ${TOTAL_SECONDS} seconds.`);
+        }
+        this.resetMission(room);
+        // Los desafíos anteriores se dan por hechos: sus fragmentos ya están en el expediente.
+        room.completed = Array.from({ length: challenge - 1 }, (_, i) => i + 1);
+        if (seconds !== undefined) room.timer.remainingMs = seconds * 1000;
+        this.beginBriefing(room, challenge);
         return;
       }
 
@@ -361,7 +384,11 @@ export class RoomManager {
         if (players.some((p) => p.role === null)) {
           throw new GameError('not_ready', 'Some players still need to choose their role.');
         }
-        for (const p of players) p.usedRoles.push(p.role as Role);
+        const missing = ROLES.filter((r) => !players.some((p) => p.roles.includes(r)));
+        if (missing.length > 0) {
+          throw new GameError('not_ready', 'Some roles still have nobody playing them.');
+        }
+        if (this.fullSquad(room)) for (const p of players) p.usedRoles.push(p.role as Role);
         this.beginChallenge(room, room.currentChallenge ?? 1);
         this.startTimer(room);
         return;
@@ -382,13 +409,24 @@ export class RoomManager {
       case 'autoassign': {
         this.requireStatus(room, ['briefing']);
         const players = [...room.players.values()];
+        if (!this.fullSquad(room)) {
+          // Menos de 6: los roles sin dueño se reparten entre quienes tienen menos.
+          const free = shuffled(ROLES.filter((r) => !players.some((p) => p.roles.includes(r))));
+          for (const role of free) {
+            const fewest = Math.min(...players.map((p) => p.roles.length));
+            const pool = players.filter((p) => p.roles.length === fewest);
+            const pick = pool[Math.floor(Math.random() * pool.length)] as Player;
+            this.setRoles(pick, [...pick.roles, role]);
+          }
+          return;
+        }
         const roles = completeAssignment(
           players.map((p) => this.seatOf(p, p.role)),
           Math.random,
         );
         if (!roles) throw new GameError('role_unavailable', 'There’s no way to assign the remaining roles.');
         players.forEach((p, i) => {
-          p.role = roles[i];
+          this.setRoles(p, [roles[i] as Role]);
         });
         return;
       }
@@ -539,7 +577,7 @@ export class RoomManager {
     }
     (choice === 'yes' ? vote.yes : vote.no).push(playerId);
 
-    const result = tallyVote(vote);
+    const result = tallyVote(vote, room.players.size);
     if (result === 'pending') return;
     share.vote = null;
     if (result === 'rejected') {
@@ -614,10 +652,11 @@ export class RoomManager {
       status: room.status,
       currentChallenge: room.currentChallenge,
       totalChallenges: this.challenges.length,
-      players: [...room.players.values()].map((p) => ({ ...p, usedRoles: [...p.usedRoles] })),
+      players: [...room.players.values()].map((p) => ({ ...p, usedRoles: [...p.usedRoles], roles: [...p.roles] })),
       you: {
         playerId: me.playerId,
         role: me.role,
+        roles: [...me.roles],
         isFacilitator: me.isFacilitator,
         usedRoles: [...me.usedRoles],
       },
@@ -707,7 +746,7 @@ export class RoomManager {
             target: vote.target,
             yes: vote.yes.length,
             no: vote.no.length,
-            needed: SHARE_VOTES_NEEDED,
+            needed: votesNeeded(room.players.size),
             myVote: vote.yes.includes(playerId) ? 'yes' : vote.no.includes(playerId) ? 'no' : null,
             payment: share.credits > 0 ? 'credit' : 'time',
             msLeft: clockLeft(vote.clock, now),
@@ -736,8 +775,43 @@ export class RoomManager {
     clearShareActivity(room.share);
     room.status = 'briefing';
     for (const p of room.players.values()) {
-      p.role = null;
+      this.setRoles(p, []);
       p.ready = false;
+    }
+  }
+
+  /** Reinicia tiempo, fragmentos y créditos para una partida nueva. */
+  private resetMission(room: Room): void {
+    room.timer = { remainingMs: TOTAL_SECONDS * 1000, runningSince: null };
+    room.missionMs = 0;
+    room.completed = [];
+    room.hint = null;
+    room.share = newShareState();
+    for (const p of room.players.values()) p.usedRoles = [];
+  }
+
+  /** true con los 6 jugadores: un rol por persona y sin repetir roles ya jugados. */
+  private fullSquad(room: Room): boolean {
+    return room.players.size === MAX_PLAYERS;
+  }
+
+  private setRoles(player: Player, roles: Role[]): void {
+    player.roles = roles;
+    player.role = roles.includes(player.role as Role) ? player.role : (roles[0] ?? null);
+  }
+
+  private toggleRole(player: Player, role: Role): void {
+    this.setRoles(player, player.roles.includes(role) ? player.roles.filter((r) => r !== role) : [...player.roles, role]);
+  }
+
+  /** Reparte los 6 roles al azar entre todos (uno cada uno con 6 jugadores; varios con menos). */
+  private dealRoles(room: Room): void {
+    const players = shuffled([...room.players.values()]);
+    const dealt = new Map<string, Role[]>(players.map((p) => [p.playerId, []]));
+    shuffled(ROLES).forEach((role, i) => dealt.get((players[i % players.length] as Player).playerId)?.push(role));
+    for (const p of room.players.values()) {
+      p.role = null;
+      this.setRoles(p, dealt.get(p.playerId) ?? []);
     }
   }
 
@@ -756,14 +830,7 @@ export class RoomManager {
   }
 
   private beginFinal(room: Room): void {
-    const roles = [...ROLES];
-    for (let i = roles.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [roles[i], roles[j]] = [roles[j] as Role, roles[i] as Role];
-    }
-    [...room.players.values()].forEach((p, i) => {
-      p.role = roles[i] as Role;
-    });
+    this.dealRoles(room);
     room.currentChallenge = null;
     room.challengeState = finalChallenge.init(challengeSeed(room.seed, 7));
     room.timedNotified = null;
@@ -803,7 +870,7 @@ export class RoomManager {
     room.challengeState = null;
     room.currentChallenge = null;
     room.status = 'practice_done';
-    for (const p of room.players.values()) p.role = null;
+    for (const p of room.players.values()) this.setRoles(p, []);
   }
 
   private seatOf(player: Player, picked: Role | null) {
@@ -917,6 +984,7 @@ export class RoomManager {
       playerId: randomUUID(),
       name,
       role: null,
+      roles: [],
       connected: true,
       isFacilitator,
       usedRoles: [],

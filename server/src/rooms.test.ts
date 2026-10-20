@@ -78,10 +78,11 @@ describe('RoomManager', () => {
     expect(codeOf(() => manager.pickRole(room.roomId, player.playerId, 'hacker'))).toBe('wrong_phase');
   });
 
-  it('solo el facilitador empieza, y solo con los 6 jugadores; empieza por el briefing del desafío 1', () => {
+  it('solo el facilitador empieza (con cualquier cantidad de jugadores); empieza por el briefing del desafío 1', () => {
     const manager = new RoomManager();
     const { room: partial, player: lone } = manager.createRoom('Solo');
-    expect(codeOf(() => manager.startGame(partial.roomId, lone.playerId))).toBe('not_ready');
+    expect(codeOf(() => manager.startGame(partial.roomId, lone.playerId))).toBeUndefined();
+    expect(partial.status).toBe('briefing');
 
     const { room, players } = fullRoom(manager);
     expect(codeOf(() => manager.startGame(room.roomId, players[1].playerId))).toBe('not_facilitator');
@@ -122,6 +123,7 @@ describe('RoomManager', () => {
     expect(view.you).toEqual({
       playerId: players[3].playerId,
       role: 'estratega',
+      roles: ['estratega'],
       isFacilitator: false,
       usedRoles: [],
     });

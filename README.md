@@ -72,6 +72,14 @@ Cualquier jugador puede proponer que todos vean la pantalla de un compañero (o 
 - **Qué no se espeja:** el cursor, el hover, el scroll, los mensajes de error momentáneos ni los cronómetros locales (estos se calculan con datos del servidor).
 - **Dónde está:** constantes `SHARE_*` y tipos en `shared/src/index.ts`; reglas en `server/src/share.ts` y `server/src/rooms.ts` (`proposeShare`, `voteShare`); eventos `share:propose`, `share:vote` y `share:ui`; el estado viaja en `RoomState.share`; la UI en `ShareBar`, `PlayStage` y `BroadcastFrame`. Tests: `server/src/share.test.ts`.
 
+## Menos de 6 jugadores y retomar una partida
+
+- **Se puede empezar con cualquier cantidad de jugadores** (mínimo 1). Con menos de 6, cada persona puede tener **varios roles**: en el briefing toca un rol para tomarlo y tócalo de nuevo para soltarlo, o el facilitador reparte «los roles que nadie tiene» (se reparten parejo). El desafío no empieza hasta que los 6 roles tienen dueño y todos tienen al menos uno.
+- **Jugar con varios roles:** arriba del panel aparece «Playing as» con una pestaña por rol; el cambio es instantáneo y sin penalidad. El servidor trata a la persona como el rol activo, así que las reglas de cada desafío no cambian (solo se vuelve más fácil, porque una persona hace de varios).
+- **Sin repetir roles solo con 6 jugadores:** con menos, esa regla se desactiva (no se podría cumplir). El calentamiento y el paso final reparten los 6 roles entre los presentes.
+- **Transmisión de pantalla:** los «sí» necesarios son 4 con 6 jugadores y mayoría simple con menos.
+- **Retomar una partida:** en la sala de espera, «Resume a mission» salta directo al briefing del desafío elegido (comando `jump`), dando por completados los anteriores (sus fragmentos ya figuran en el expediente) y con los minutos que indiques. Los roles ya jugados no se recuerdan: arrancan de cero.
+
 ## Flujo y rotación de roles
 
 `lobby → briefing → playing ⇄ paused → transition → briefing (siguiente) … → won | lost`

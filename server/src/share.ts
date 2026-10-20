@@ -91,12 +91,18 @@ export function thawShare(share: ShareState, now: number): void {
   if (share.cooldown) thawClock(share.cooldown, now);
 }
 
+/** «Sí» necesarios: 4 con 6 jugadores; con menos, la mayoría simple. */
+export function votesNeeded(players: number): number {
+  return Math.max(1, Math.min(SHARE_VOTES_NEEDED, Math.floor(players / 2) + 1));
+}
+
 /**
  * Con 6 jugadores y 4 «sí» necesarios, la propuesta se cae con el tercer «no»
  * (los 3 restantes ya no alcanzan para llegar a 4).
  */
-export function tallyVote(vote: ShareVote): 'approved' | 'rejected' | 'pending' {
-  if (vote.yes.length >= SHARE_VOTES_NEEDED) return 'approved';
-  if (vote.no.length > MAX_PLAYERS - SHARE_VOTES_NEEDED) return 'rejected';
+export function tallyVote(vote: ShareVote, players: number = MAX_PLAYERS): 'approved' | 'rejected' | 'pending' {
+  const needed = votesNeeded(players);
+  if (vote.yes.length >= needed) return 'approved';
+  if (vote.no.length > players - needed) return 'rejected';
   return 'pending';
 }

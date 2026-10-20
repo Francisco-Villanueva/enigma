@@ -104,6 +104,7 @@ export default function App() {
         startGame={game.startGame}
         sendAction={game.sendAction}
         sendCommand={game.sendCommand}
+        switchRole={game.switchRole}
         proposeShare={game.proposeShare}
         voteShare={game.voteShare}
         publishShareUi={game.publishShareUi}

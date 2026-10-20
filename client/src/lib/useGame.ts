@@ -24,6 +24,8 @@ export interface GameApi {
   setReady: (ready: boolean) => Promise<Ack>;
   sendAction: (action: ChallengeAction) => Promise<Ack>;
   sendCommand: (command: FacilitatorCommand) => Promise<Ack>;
+  /** Con varios roles, elige con cuál jugar ahora. */
+  switchRole: (role: Role) => Promise<Ack>;
   proposeShare: (target: string) => Promise<Ack>;
   voteShare: (vote: 'yes' | 'no') => Promise<Ack>;
   /** Publica el estado de pantalla del emisor (sin esperar respuesta). */
@@ -120,6 +122,11 @@ export function useGame(): GameApi {
     [],
   );
 
+  const switchRole = useCallback(
+    (role: Role) => new Promise<Ack>((resolve) => socket.emit('role:switch', { role }, resolve)),
+    [],
+  );
+
   const proposeShare = useCallback(
     (target: string) => new Promise<Ack>((resolve) => socket.emit('share:propose', { target }, resolve)),
     [],
@@ -145,6 +152,7 @@ export function useGame(): GameApi {
     setReady,
     sendAction,
     sendCommand,
+    switchRole,
     proposeShare,
     voteShare,
     publishShareUi,

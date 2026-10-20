@@ -52,6 +52,8 @@ export const ROLE_INFO: Record<Role, RoleInfo> = {
 };
 
 export const MAX_PLAYERS = ROLES.length;
+/** Con menos de MAX_PLAYERS jugadores, algunos toman varios roles. */
+export const MIN_PLAYERS = 1;
 export const NAME_MAX_LENGTH = 20;
 
 /** Sin 0/O ni 1/I para que el código se dicte sin confusiones por la llamada. */
@@ -826,6 +828,11 @@ export type FacilitatorCommand =
   | { type: 'hint'; text: string }
   /** Corta la votación o la transmisión en curso (no devuelve el cobro). */
   | { type: 'share:cancel' }
+  /**
+   * Desde la sala de espera: salta directo al briefing del desafío `challenge`, dando por
+   * completados los anteriores. `seconds` es el tiempo que queda (por defecto, todo).
+   */
+  | { type: 'jump'; challenge: number; seconds?: number }
   /** Suma o resta créditos de señal. */
   | { type: 'share:credits'; delta: number };
 
@@ -837,13 +844,17 @@ export interface PublicPlayer {
   isFacilitator: boolean;
   /** Roles de desafíos que ya empezaron: no se pueden volver a elegir. */
   usedRoles: Role[];
+  /** Todos los roles que tiene (con menos de 6 jugadores, uno puede tener varios). */
+  roles: Role[];
   /** Optional "I understand my role" check during the briefing. */
   ready: boolean;
 }
 
 export interface YouInfo {
   playerId: string;
+  /** El rol con el que está jugando ahora (uno de `roles`). */
   role: Role | null;
+  roles: Role[];
   isFacilitator: boolean;
   usedRoles: Role[];
 }
@@ -962,6 +973,7 @@ export interface ClientToServerEvents {
   'game:start': (cb: (a: Ack) => void) => void;
   'challenge:action': (action: ChallengeAction, cb: (a: Ack) => void) => void;
   'facilitator:command': (command: FacilitatorCommand, cb: (a: Ack) => void) => void;
+  'role:switch': (p: { role: Role }, cb: (a: Ack) => void) => void;
   'share:propose': (p: { target: string }, cb: (a: Ack) => void) => void;
   'share:vote': (p: { vote: 'yes' | 'no' }, cb: (a: Ack) => void) => void;
   'share:ui': (p: { ui: Record<string, unknown> }, cb: (a: Ack) => void) => void;

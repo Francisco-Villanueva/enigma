@@ -177,6 +177,10 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
       run(socket, cb, (roomId, playerId) => manager.pickRole(roomId, playerId, payload?.role ?? null));
     });
 
+    socket.on('role:switch', (payload, cb) => {
+      run(socket, cb, (roomId, playerId) => manager.switchRole(roomId, playerId, payload?.role));
+    });
+
     socket.on('player:ready', (payload, cb) => {
       run(socket, cb, (roomId, playerId) => manager.setReady(roomId, playerId, payload?.ready === true));
     });

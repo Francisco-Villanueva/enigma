@@ -22,11 +22,13 @@ export function Briefing({ state, pickRole, setReady, sendCommand }: Props) {
   const { briefing, players, you } = state;
   if (!briefing) return null;
 
-  const assigned = players.filter((p) => p.role !== null).length;
-  const allAssigned = assigned === MAX_PLAYERS;
+  const full = players.length === MAX_PLAYERS;
+  const assigned = players.filter((p) => p.roles.length > 0).length;
+  const coveredRoles = ROLES.filter((r) => players.some((p) => p.roles.includes(r))).length;
+  const allAssigned = assigned === players.length && coveredRoles === ROLES.length;
   const me = players.find((p) => p.playerId === you.playerId);
   const readyCount = players.filter((p) => p.ready).length;
-  const myTurnToChoose = you.role === null;
+  const myTurnToChoose = you.roles.length === 0;
 
   async function handle(action: Promise<Ack>) {
     setError(null);
@@ -63,23 +65,27 @@ export function Briefing({ state, pickRole, setReady, sendCommand }: Props) {
         </div>
       </details>
 
-      {you.role && (
+      {you.roles.length > 0 && (
         <section
           className="mt-6 max-w-3xl border border-core-600 border-l-4 border-l-signal bg-core-950 px-5 py-3"
           data-my-task
         >
-          <p className="font-mono text-[0.65rem] tracking-widest text-signal uppercase">
-            Your task as {ROLE_INFO[you.role].label}
-          </p>
-          <p className="mt-1 text-white">{briefing.guide.tasks[you.role].does}</p>
-          <p className="mt-1 text-sm text-slate-300">
-            <span className="text-slate-400">Can’t see: </span>
-            {briefing.guide.tasks[you.role].cantSee}
-          </p>
-          <p className="text-sm text-slate-300">
-            <span className="text-slate-400">Talk to: </span>
-            {briefing.guide.tasks[you.role].talkTo}
-          </p>
+          {you.roles.map((role, i) => (
+            <div key={role} className={i > 0 ? 'mt-3 border-t border-core-700 pt-3' : ''}>
+              <p className="font-mono text-[0.65rem] tracking-widest text-signal uppercase">
+                Your task as {ROLE_INFO[role].label}
+              </p>
+              <p className="mt-1 text-white">{briefing.guide.tasks[role].does}</p>
+              <p className="mt-1 text-sm text-slate-300">
+                <span className="text-slate-400">Can’t see: </span>
+                {briefing.guide.tasks[role].cantSee}
+              </p>
+              <p className="text-sm text-slate-300">
+                <span className="text-slate-400">Talk to: </span>
+                {briefing.guide.tasks[role].talkTo}
+              </p>
+            </div>
+          ))}
           <button
             type="button"
             data-ready
@@ -102,16 +108,18 @@ export function Briefing({ state, pickRole, setReady, sendCommand }: Props) {
             What each role does in this challenge
           </h2>
           <p className="mt-1 text-sm text-slate-400">
-            {myTurnToChoose
-              ? 'Pick your role. You can\'t repeat one you\'ve already played: that way everyone plays every role.'
-              : 'You have a role. To change, release it and pick another.'}
+            {!full
+              ? 'You are fewer than 6, so some of you take several roles. Tap a role to take it, tap it again to release it; every role needs someone. During the challenge you switch between yours.'
+              : myTurnToChoose
+                ? 'Pick your role. You can\'t repeat one you\'ve already played: that way everyone plays every role.'
+                : 'You have a role. To change, release it and pick another.'}
           </p>
           <ul className="mt-3 grid gap-3 sm:grid-cols-2">
             {ROLES.map((role: Role) => {
-              const owner = players.find((p) => p.role === role);
+              const owner = players.find((p) => p.roles.includes(role));
               const mine = owner?.playerId === you.playerId;
               const taken = owner !== undefined && !mine;
-              const used = you.usedRoles.includes(role);
+              const used = full && you.usedRoles.includes(role);
               const disabled = taken || (used && !mine);
               return (
                 <li key={role}>
@@ -121,7 +129,7 @@ export function Briefing({ state, pickRole, setReady, sendCommand }: Props) {
                     data-state={mine ? 'mine' : used ? 'used' : taken ? 'taken' : 'free'}
                     disabled={disabled}
                     aria-pressed={mine}
-                    onClick={() => void handle(pickRole(mine ? null : role))}
+                    onClick={() => void handle(pickRole(mine && full ? null : role))}
                     className={[
                       'flex h-full w-full gap-3 rounded-lg border p-4 text-left transition',
                       mine
@@ -158,7 +166,7 @@ export function Briefing({ state, pickRole, setReady, sendCommand }: Props) {
 
         <aside aria-label="Squad">
           <h2 className="font-mono text-xs tracking-widest text-slate-400 uppercase">
-            Squad ({assigned}/{MAX_PLAYERS} with a role)
+            Squad ({coveredRoles}/{ROLES.length} roles covered)
           </h2>
           <ul className="mt-3 space-y-2">
             {players.map((p) => (
@@ -177,7 +185,8 @@ export function Briefing({ state, pickRole, setReady, sendCommand }: Props) {
                     {p.playerId === you.playerId && <span className="text-slate-400"> (you)</span>}
                   </span>
                   <span className="block text-xs text-slate-400">
-                    {p.role ? ROLE_INFO[p.role].label : 'No role'} · {p.usedRoles.length} played
+                    {p.roles.length > 0 ? p.roles.map((r) => ROLE_INFO[r].label).join(' + ') : 'No role'}
+                    {full ? ` · ${p.usedRoles.length} played` : ''}
                     {p.ready ? ' · ✓ ready' : ''}
                   </span>
                 </span>
@@ -186,7 +195,9 @@ export function Briefing({ state, pickRole, setReady, sendCommand }: Props) {
                     Facilitator
                   </span>
                 )}
-                {p.role && <RoleIcon role={p.role} size={16} className="shrink-0 text-slate-300" />}
+                {p.roles.map((r) => (
+                  <RoleIcon key={r} role={r} size={16} className="shrink-0 text-slate-300" />
+                ))}
               </li>
             ))}
           </ul>
@@ -194,8 +205,10 @@ export function Briefing({ state, pickRole, setReady, sendCommand }: Props) {
           <div className="mt-6 space-y-3">
             <p className="text-sm text-slate-400">
               {allAssigned
-                ? `Everyone has a role. ${readyCount}/${MAX_PLAYERS} confirmed they understand it (optional). The facilitator can start.`
-                : `${MAX_PLAYERS - assigned} more people need to pick a role.`}
+                ? `Every role is covered. ${readyCount}/${players.length} confirmed they understand it (optional). The facilitator can start.`
+                : full
+                  ? `${players.length - assigned} more people need to pick a role.`
+                  : `${ROLES.length - coveredRoles} roles still have nobody, and everyone needs at least one.`}
             </p>
             {error && (
               <p role="alert" className="rounded-md border border-alert/40 bg-alert/10 px-3 py-2 text-sm text-alert">
@@ -211,7 +224,7 @@ export function Briefing({ state, pickRole, setReady, sendCommand }: Props) {
                   onClick={() => void handle(sendCommand({ type: 'autoassign' }))}
                   className="w-full rounded-md border border-core-600 px-4 py-2 text-sm text-slate-200 transition hover:border-signal disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Randomly assign the missing roles
+                  {full ? 'Randomly assign the missing roles' : 'Randomly assign the roles nobody has'}
                 </button>
                 <button
                   type="button"

@@ -69,10 +69,9 @@ describe('final step', () => {
 });
 
 describe('intro film', () => {
-  it('goes lobby → intro → warm-up or mission 1, and needs 6 players', () => {
+  it('goes lobby → intro → warm-up or mission 1', () => {
     const m = new RoomManager();
     const { room, player } = m.createRoom('Host');
-    expect(() => m.command(room.roomId, player.playerId, { type: 'intro' })).toThrow();
     for (const n of ['A', 'B', 'C', 'D', 'E']) m.joinRoom(room.roomId, n);
     m.command(room.roomId, player.playerId, { type: 'intro' });
     expect(room.status).toBe('intro');

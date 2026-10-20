@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { MAX_PLAYERS } from '@enigma/shared';
+import { MAX_PLAYERS, MIN_PLAYERS, TOTAL_SECONDS } from '@enigma/shared';
 import type { Ack, FacilitatorCommand, RoomState } from '@enigma/shared';
 import type { GameApi } from '../lib/useGame';
 
@@ -13,7 +13,9 @@ export function Lobby({ state, startGame, sendCommand }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const ready = state.players.length === MAX_PLAYERS;
+  const ready = state.players.length >= MIN_PLAYERS;
+  const [challenge, setChallenge] = useState(3);
+  const [minutes, setMinutes] = useState(TOTAL_SECONDS / 60);
 
   async function handle(action: Promise<Ack>) {
     setError(null);
@@ -68,16 +70,16 @@ export function Lobby({ state, startGame, sendCommand }: Props) {
           <h2 className="font-mono text-xs tracking-widest text-slate-400 uppercase">How it works</h2>
           <ol className="mt-3 space-y-3 text-slate-300">
             <li className="rounded-lg border border-core-700 bg-core-900 p-4">
-              <span className="font-mono text-signal">1.</span> Share the room code until all{' '}
-              {MAX_PLAYERS} players have joined.
+              <span className="font-mono text-signal">1.</span> Share the room code. Ideally {MAX_PLAYERS} players join,
+              but you can start with fewer: some of you will play several roles at once and switch between them.
             </li>
             <li className="rounded-lg border border-core-700 bg-core-900 p-4">
               <span className="font-mono text-signal">2.</span> Before each challenge you'll see what it is about and what
               each role does, and everyone picks their own.
             </li>
             <li className="rounded-lg border border-core-700 bg-core-900 p-4">
-              <span className="font-mono text-signal">3.</span> You can't repeat a role you've already played: by the end
-              everyone will have played every role.
+              <span className="font-mono text-signal">3.</span> With {MAX_PLAYERS} players you can't repeat a role you've
+              already played: by the end everyone will have played every role.
             </li>
             <li className="rounded-lg border border-core-700 bg-core-900 p-4">
               <span className="font-mono text-signal">4.</span> Talk on the call: each screen shows only part of the
@@ -120,7 +122,9 @@ export function Lobby({ state, startGame, sendCommand }: Props) {
           <div className="mt-6 space-y-3">
             <p className="text-sm text-slate-400">
               {state.players.length < MAX_PLAYERS
-                ? `${MAX_PLAYERS - state.players.length} more players need to join.`
+                ? `${state.players.length} of ${MAX_PLAYERS} here. You can start now: each person will take ${Math.ceil(
+                    MAX_PLAYERS / state.players.length,
+                  )} roles at most, or wait for the others.`
                 : 'Everything is ready to start.'}
             </p>
             {error && (
@@ -157,6 +161,54 @@ export function Lobby({ state, startGame, sendCommand }: Props) {
                 >
                   Skip to mission 1
                 </button>
+                <fieldset className="space-y-2 rounded-md border border-core-700 p-3">
+                  <legend className="px-1 font-mono text-[0.65rem] tracking-widest text-slate-400 uppercase">
+                    Resume a mission
+                  </legend>
+                  <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <label htmlFor="jump-challenge">Start at mission</label>
+                    <select
+                      id="jump-challenge"
+                      data-jump-challenge
+                      value={challenge}
+                      onChange={(e) => setChallenge(Number(e.target.value))}
+                      className="rounded-md border border-core-600 bg-core-950 px-2 py-1 text-white"
+                    >
+                      {Array.from({ length: state.totalChallenges }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <label htmlFor="jump-minutes">Minutes left</label>
+                    <input
+                      id="jump-minutes"
+                      data-jump-minutes
+                      type="number"
+                      min={1}
+                      max={TOTAL_SECONDS / 60}
+                      value={minutes}
+                      onChange={(e) => setMinutes(Number(e.target.value))}
+                      className="w-20 rounded-md border border-core-600 bg-core-950 px-2 py-1 text-white"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    data-jump
+                    disabled={!ready || !Number.isFinite(minutes) || minutes < 1}
+                    onClick={() =>
+                      void handle(sendCommand({ type: 'jump', challenge, seconds: Math.round(minutes * 60) }))
+                    }
+                    className="w-full rounded-md border border-core-600 px-4 py-2.5 text-sm text-slate-200 transition hover:border-signal disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Start at mission {challenge}
+                  </button>
+                  <p className="text-xs text-slate-500">
+                    Earlier missions count as done, with their fragments already in the file.
+                  </p>
+                </fieldset>
               </>
             ) : (
               <p className="font-mono text-xs text-slate-500">Waiting for the facilitator…</p>

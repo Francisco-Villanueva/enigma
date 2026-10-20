@@ -7,6 +7,7 @@ import { FinalPanel } from './FinalPanel';
 import { FragmentsBar } from './FragmentsBar';
 import { MapReveal } from './MapReveal';
 import { PlayStage } from './PlayStage';
+import { RoleSwitcher } from './RoleSwitcher';
 import { SandboxPanel } from './SandboxPanel';
 import { ShareBar } from './ShareBar';
 import { TaskCard } from './TaskCard';
@@ -18,6 +19,7 @@ interface Props {
   setReady: (ready: boolean) => Promise<Ack>;
   startGame: () => Promise<Ack>;
   sendCommand: (command: FacilitatorCommand) => Promise<Ack>;
+  switchRole: (role: Role) => Promise<Ack>;
   proposeShare: (target: string) => Promise<Ack>;
   voteShare: (vote: 'yes' | 'no') => Promise<Ack>;
   publishShareUi: (ui: Record<string, unknown>) => void;
@@ -30,6 +32,7 @@ export function GameScreen({
   startGame,
   sendAction,
   sendCommand,
+  switchRole,
   proposeShare,
   voteShare,
   publishShareUi,
@@ -95,6 +98,7 @@ export function GameScreen({
 
         {status === 'practice' && challenge && you.role && (
           <>
+            <RoleSwitcher you={you} switchRole={switchRole} />
             <TaskCard task={challenge.task} guide={challenge.guide} role={you.role} />
             {challenge.view.kind === 'sandbox' && (
               <SandboxPanel role={you.role} view={challenge.view} disabled={false} sendAction={sendAction} />
@@ -104,6 +108,7 @@ export function GameScreen({
 
         {status === 'final' && challenge && you.role && challenge.view.kind === 'final' && (
           <>
+            <RoleSwitcher you={you} switchRole={switchRole} />
             <TaskCard task={challenge.task} guide={challenge.guide} role={you.role} />
             <FinalPanel role={you.role} view={challenge.view} sendAction={sendAction} />
           </>
@@ -143,6 +148,7 @@ export function GameScreen({
 
         {(status === 'playing' || status === 'paused') && challenge && you.role && (
           <>
+            <RoleSwitcher you={you} switchRole={switchRole} />
             <TaskCard task={challenge.task} guide={challenge.guide} role={you.role} />
             {status === 'paused' && (
               <p role="status" className="bg-core-800 px-5 py-2 text-center text-sm text-amber">
